@@ -1,0 +1,135 @@
+{
+  "schema": "autobuilder.intent_card.v1",
+  "intent_slug": "wintermute-desktop",
+  "prd_source": "/home/jsy/wintermute/autobuilder/PRD-wintermute-desktop.md",
+  "root_motivation": "Give the wintermute brain a read+act surface over the entire X11 desktop (not just the browser) so it can autonomously operate any app — text editors, file managers, settings dialogs — using AT-SPI accessibility semantics for reading and xdotool/baton for acting, with the same snapshot-with-refs mental model as wm-browser.",
+  "user_persona": "jsy running wintermute on an Arch Linux X11 laptop; brain issues tool calls over agorabus and expects structured JSON replies shaped like wm-browser's protocol.",
+  "unfakeable_metric": {
+    "name": "acceptance_tests_passing_count",
+    "lower_is_better": false,
+    "harness_command": "scripts/run-metrics.sh",
+    "target": null
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC1",
+      "level": "MUST",
+      "description": "`wm-desktop apps` returns JSON `{apps:[{name,pid,window_ids}]}` with at least one entry on a running X11 session; binary exits 0.",
+      "test": "tests/acceptance_ac1.rs"
+    },
+    {
+      "id": "AC2",
+      "level": "MUST",
+      "description": "Protocol types (Command, Reply, AxNode, Snapshot, Tool enum) serde-roundtrip correctly and `tool_parse` covers all 7 variants plus unknown→None.",
+      "test": "tests/acceptance_ac2.rs"
+    },
+    {
+      "id": "AC3",
+      "level": "MUST",
+      "description": "`cap_snapshot` truncates at 1500 refs and sets `truncated:true`; under the cap leaves `truncated:false`. Pure unit test, no AT-SPI required.",
+      "test": "tests/acceptance_ac3.rs"
+    },
+    {
+      "id": "AC4",
+      "level": "MUST",
+      "description": "`find_matches` filters by case-insensitive text + optional role predicate; returns `[{ref,role,name}]` shape matching the protocol spec.",
+      "test": "tests/acceptance_ac4.rs"
+    },
+    {
+      "id": "AC5",
+      "level": "MUST",
+      "description": "Daemon subscribes to topic `wm.desktop.cmd`, dispatches `apps`/`focus`/`read_window`/`click`/`type`/`key`/`find` commands, publishes replies on `wm.desktop.reply`. Unknown tool → `{ok:false,error:\"unknown tool\"}` rather than panic.",
+      "test": "tests/acceptance_ac5.rs"
+    },
+    {
+      "id": "AC6",
+      "level": "MUST",
+      "description": "Binary compiles, `cargo clippy -D warnings` passes, `cargo deny check bans licenses sources` passes, `cargo test --workspace` exits 0.",
+      "test": "tests/acceptance_ac6.rs"
+    },
+    {
+      "id": "AC7",
+      "level": "SHOULD",
+      "description": "`wm-desktop focus {app:\"<name>\"}` sets focus by resolving the window via AT-SPI app list; reply `{ok,window_id}`. Stub test (mock AT-SPI) verifies dispatch logic.",
+      "test": "tests/acceptance_ac7.rs"
+    },
+    {
+      "id": "AC8",
+      "level": "SHOULD",
+      "description": "`wm-desktop type {text:\"hello\"}` delegates to `baton type \"hello\"` subprocess; captured subprocess invocation matches expected args. Test uses `--dry-run` flag or mock.",
+      "test": "tests/acceptance_ac8.rs"
+    },
+    {
+      "id": "AC9",
+      "level": "SHOULD",
+      "description": "`wm-desktop key {combo:\"ctrl+s\"}` delegates to `baton key ctrl+s`; same mock/dry-run pattern as AC8.",
+      "test": "tests/acceptance_ac9.rs"
+    },
+    {
+      "id": "AC10",
+      "level": "MAY",
+      "description": "`wm-desktop read_window` on the daemon returns a snapshot capped at 1500 nodes with `snapshot_id` UUID and `{ref,role,name,value,children_refs}` node shape.",
+      "test": "tests/acceptance_ac10.rs"
+    }
+  ],
+  "scope": [
+    "Binary `wm-desktop` daemon that subscribes to `wm.desktop.cmd` on agorabus",
+    "AT-SPI accessibility-tree reading via `atspi-connection` crate for `apps` and `read_window` tools",
+    "xdotool/baton subprocess delegation for `focus`, `type`, `key` actions",
+    "Snapshot-with-refs data model (1500-node cap, `{ref,role,name,value,children_refs}`) mirroring wm-browser shape",
+    "CLI one-shot mode: `wm-desktop <tool> [args]` prints JSON reply without daemon",
+    "Role vocabulary normalization: AT-SPI roles → `button|textfield|label|menuitem|window|container|other`",
+    "`find` tool: text+role filter over the latest snapshot"
+  ],
+  "non_goals": [
+    "Wayland support — X11 only; revisit when hardware moves to Wayland",
+    "AT-SPI event streaming / subscription — only on-demand snapshot polling",
+    "Screen capture or OCR fallback — that is wm-screen-narrate's job",
+    "Native GUI or tray icon — pure headless daemon",
+    "Brain-side tool registration — the brain registers `desktop.*` tools separately",
+    "Auto-enabling the AT-SPI bus at install time — documented as manual step in README, not enforced by the binary"
+  ],
+  "hard_constraints": {
+    "rust_edition": "2024",
+    "target_kind": "cli",
+    "deny_unsafe": true,
+    "max_deps": 20,
+    "msrv": "1.85",
+    "additional": {
+      "note": "atspi-connection pulls in zbus which is async/dbus-heavy; tokio runtime required. deny_unsafe holds because atspi-connection is safe Rust."
+    }
+  },
+  "five_whys_trace": [
+    {
+      "why": 1,
+      "q": "Why does the brain need an AT-SPI daemon beyond wm-browser?",
+      "a": "wm-browser can only read/act on pages inside Chrome; the rest of the desktop (editors, file managers, dialogs) is invisible to it."
+    },
+    {
+      "why": 2,
+      "q": "Why does the brain need to read and act on non-browser apps?",
+      "a": "Vision §End-state #8 requires operating any app jsy might open — the brain can't achieve that with browser-only access; it would be locked out of 90% of the desktop."
+    },
+    {
+      "why": 3,
+      "q": "Why use AT-SPI rather than screenshot+OCR for reading?",
+      "a": "AT-SPI delivers semantic structure (roles, names, values, widget refs) that is both token-efficient and action-targetable; OCR gives raw pixels that must be re-parsed and can't produce reliable click refs."
+    },
+    {
+      "why": 4,
+      "q": "Why mirror wm-browser's snapshot-with-refs shape instead of a custom shape?",
+      "a": "The brain already knows how to handle snapshot-with-refs from wm-browser; a consistent mental model across surfaces eliminates the need for the brain to learn two different ref schemes."
+    }
+  ],
+  "ambiguities_resolved": [
+    {
+      "question": "Should the daemon auto-enable the AT-SPI bus if it is not running?",
+      "resolution": "No — auto-enabling requires writing autostart files and potentially restarting the session bus. This is documented as a manual prerequisite in README; the binary emits a clear error with instructions when AT-SPI is unavailable."
+    },
+    {
+      "question": "Which atspi crate: `atspi` (0.30) or `atspi-connection` (0.14)?",
+      "resolution": "Use `atspi-connection` which provides the higher-level connection/proxy API; also add `atspi-common` for shared types. The monolithic `atspi` crate re-exports both but adds unwanted transitive deps."
+    }
+  ],
+  "created_at": "2026-05-29T00:00:00Z"
+}
