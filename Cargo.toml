@@ -61,7 +61,7 @@ strip = "debuginfo"
 panic = "abort"
 
 [dependencies]
-agorabus = { path = "../agorabus", version = "0.4" }
+agorabus = { path = "../agorabus", version = "0.8" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
